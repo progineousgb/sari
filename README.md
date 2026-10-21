@@ -45,8 +45,6 @@ Run the tests with:
 go test ./...
 ```
 
-The tests call `python`, so it needs to be on your PATH.
-
 ## Usage
 
 ```text
