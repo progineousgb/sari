@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -38,12 +39,15 @@ func Parse(src string) ([]Task, error) {
 		if eq < 0 {
 			return nil, fmt.Errorf("line %d: expected name = command", i+1)
 		}
-		name := strings.TrimSpace(line[:eq])
+		name, err := parseKey(strings.TrimSpace(line[:eq]))
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
+		}
 		command, err := parseCommand(strings.TrimSpace(line[eq+1:]))
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", i+1, err)
 		}
-		if name == "" || strings.Contains(name, "\"") || !utf8.ValidString(name) {
+		if name == "" || !utf8.ValidString(name) {
 			return nil, fmt.Errorf("line %d: invalid task name", i+1)
 		}
 		if strings.TrimSpace(command) == "" {
@@ -57,48 +61,89 @@ func Parse(src string) ([]Task, error) {
 	return tasks, nil
 }
 
+// parseKey accepts a bare key, a "basic" quoted key, or a 'literal' key.
+func parseKey(s string) (string, error) {
+	if s == "" || (s[0] != '"' && s[0] != '\'') {
+		if strings.ContainsAny(s, "\"'") {
+			return "", fmt.Errorf("invalid task name")
+		}
+		return s, nil
+	}
+	v, rest, err := parseQuoted(s)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(rest) != "" {
+		return "", fmt.Errorf("invalid task name")
+	}
+	return v, nil
+}
+
+// parseCommand reads a value. A value in double quotes ("basic") or single
+// quotes ('literal') has its quotes removed; a "#" comment may follow it.
+// An unquoted value is taken as written.
 func parseCommand(s string) (string, error) {
 	if s == "" {
 		return "", fmt.Errorf("empty command")
 	}
-	if s[0] != '"' {
+	if s[0] != '"' && s[0] != '\'' {
 		return s, nil
 	}
+	v, rest, err := parseQuoted(s)
+	if err != nil {
+		return "", err
+	}
+	rest = strings.TrimSpace(rest)
+	if rest != "" && !strings.HasPrefix(rest, "#") {
+		return "", fmt.Errorf("trailing characters after quoted command")
+	}
+	return v, nil
+}
+
+// parseQuoted reads one quoted string at the start of s and returns its
+// value and the text after the closing quote.
+func parseQuoted(s string) (string, string, error) {
+	quote := s[0]
 	var b strings.Builder
-	escaped := false
-	closed := false
 	for i := 1; i < len(s); i++ {
 		c := s[i]
-		if escaped {
-			switch c {
-			case '\\', '"':
-				b.WriteByte(c)
-			case 'n':
-				b.WriteByte('\n')
-			case 't':
-				b.WriteByte('\t')
-			default:
-				return "", fmt.Errorf("bad escape \\%c", c)
-			}
-			escaped = false
+		if c == quote {
+			return b.String(), s[i+1:], nil
+		}
+		if c != '\\' || quote == '\'' {
+			b.WriteByte(c)
 			continue
 		}
-		if c == '\\' {
-			escaped = true
-			continue
-		}
-		if c == '"' {
-			rest := strings.TrimSpace(s[i+1:])
-			if rest != "" {
-				return "", fmt.Errorf("trailing characters after quoted command")
-			}
-			closed = true
+		i++
+		if i >= len(s) {
 			break
 		}
-		b.WriteByte(c)
+		switch s[i] {
+		case '\\', '"':
+			b.WriteByte(s[i])
+		case 'n':
+			b.WriteByte('\n')
+		case 't':
+			b.WriteByte('\t')
+		case 'r':
+			b.WriteByte('\r')
+		case 'u', 'U':
+			n := 4
+			if s[i] == 'U' {
+				n = 8
+			}
+			if i+n >= len(s) {
+				return "", "", fmt.Errorf("bad escape \\%c", s[i])
+			}
+			code, err := strconv.ParseUint(s[i+1:i+1+n], 16, 32)
+			if err != nil || !utf8.ValidRune(rune(code)) {
+				return "", "", fmt.Errorf("bad escape \\%c", s[i])
+			}
+			b.WriteRune(rune(code))
+			i += n
+		default:
+			return "", "", fmt.Errorf("bad escape \\%c", s[i])
+		}
 	}
-	if escaped || !closed {
-		return "", fmt.Errorf("unclosed quote")
-	}
-	return b.String(), nil
+	return "", "", fmt.Errorf("unclosed quote")
 }
