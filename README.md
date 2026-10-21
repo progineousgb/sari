@@ -1,6 +1,6 @@
 # sari
 
-sari runs the commands listed in a TOML file, in order, and prints how long each one took. It runs once and exits; it does not stay in the background.
+sari runs the commands listed in a small task file, in order, and prints how long each one took. It runs once and exits; it does not stay in the background.
 
 ## What it does
 
@@ -44,6 +44,21 @@ Run the tests with:
 ```sh
 go test ./...
 ```
+
+## Task file format
+
+`sari.toml` uses a small subset of TOML syntax. It is not a full TOML parser. What it reads:
+
+- One `[tasks]` table. Any other table, array, or nested key is an error.
+- One task per line: `name = command`. Tasks run in file order.
+- Blank lines and lines that start with `#` are ignored.
+- A name is bare (`build`), double quoted (`"build all"`), or single quoted (`'build'`). The quotes are not part of the name.
+- A command in double quotes is a basic string: the quotes are removed and `\\`, `\"`, `\n`, `\t`, `\r`, `\uXXXX`, and `\UXXXXXXXX` escapes are decoded.
+- A command in single quotes is a literal string: the quotes are removed and backslashes are kept as written.
+- A quoted command may be followed by a `#` comment.
+- An unquoted command is taken as written to the end of the line, so `echo hi # x` runs with `# x` included. This is not valid TOML, and sari accepts it for convenience.
+
+Multi-line strings, numbers, booleans, dates, inline tables, and arrays are not supported.
 
 ## Usage
 

@@ -72,3 +72,32 @@ func TestRunFlags(t *testing.T) {
 		t.Fatalf("path %s keep %v", path, keep)
 	}
 }
+
+func TestParseQuotedValues(t *testing.T) {
+	src := "[tasks]\n" +
+		"a = \"echo hi\"\n" +
+		"b = 'echo \"x\"'\n" +
+		"c = \"echo \\u0041\" # note\n" +
+		"\"d e\" = echo d\n" +
+		"'f' = 'C:\\path'\n"
+	tasks, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Task{{"a", "echo hi"}, {"b", "echo \"x\""}, {"c", "echo A"}, {"d e", "echo d"}, {"f", "C:\\path"}}
+	if len(tasks) != len(want) {
+		t.Fatalf("%#v", tasks)
+	}
+	for i := range want {
+		if tasks[i] != want[i] {
+			t.Fatalf("task %d: got %#v want %#v", i, tasks[i], want[i])
+		}
+	}
+}
+
+func TestParseUnclosedSingleQuote(t *testing.T) {
+	_, err := Parse("[tasks]\nx = 'echo\n")
+	if err == nil || !strings.Contains(err.Error(), "unclosed quote") {
+		t.Fatal(err)
+	}
+}
