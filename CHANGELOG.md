@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.2 (2026-10-21)
+
+Commit email update. No code changes.
+
 ## v1.0.1 (2026-10-21)
 
 Commit metadata cleanup. No code changes.
