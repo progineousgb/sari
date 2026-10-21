@@ -1,97 +1,153 @@
 # sari
 
-sari runs the commands listed in a TOML file, in order, and prints how long each one took. You run it when you want the list; it does not stay running in the background.
+sari runs the commands listed in a TOML file, in order, and prints how long each one took. It runs once and exits; it does not stay in the background.
 
-## What you get
+## What it does
 
-`sari run` prints each task name, that task's own output, and then a table. The table columns are `task`, `exit`, and `ms`: the name, the exit code, and the duration in milliseconds.
+- `sari run` reads `sari.toml`, runs each task from top to bottom, and prints a `$ <name>` line before each task's own output.
+- After the tasks it prints a table with three columns: `task`, `exit` and `ms` (task name, exit code, duration in milliseconds).
+- By default sari stops at the first task that exits non-zero. `--keep-going` runs the rest anyway. The table is printed in both cases.
+- `sari time -- <cmd> [args...]` runs one program, prints its output, then `exit <code>` and `duration <ms>ms`.
 
-`sari time` times one program. It prints that program's output, then `exit <code>` and `duration <milliseconds>ms`.
+## Install
 
-## Install and run
+Requires Go 1.24 or newer (from `go.mod`).
 
-The module in `go.mod` uses Go 1.24. From this directory the build is:
+```sh
+go install github.com/progineousgb/sari@latest
+```
+
+This puts the `sari` binary in `$(go env GOPATH)/bin`. Make sure that directory is on your PATH.
+
+### Build from source
+
+Linux and macOS:
+
+```sh
+git clone https://github.com/progineousgb/sari.git
+cd sari
+go build -o sari .
+./sari --help
+```
+
+Windows (PowerShell or cmd):
 
 ```text
+git clone https://github.com/progineousgb/sari.git
+cd sari
 go build -o sari.exe .
+.\sari.exe --help
 ```
 
-On this machine `go` on PATH is 1.25.1 and `GOROOT` is the 1.24.1 tree, so that command stops with a compiler version mismatch. The binary used for the output below was built with:
+Run the tests with:
 
-```text
-C:\laragon\bin\go\go1.24.1\bin\go.exe build -o sari.exe .
+```sh
+go test ./...
 ```
 
-In PowerShell the program is `.\sari.exe`, run from this directory:
+The tests call `python`, so it needs to be on your PATH.
 
-```text
-.\sari.exe run
-.\sari.exe time -- python -c "print(123)"
-```
-
-`.\sari.exe` with no arguments reads `sari.toml` in the current directory and runs it, same as `.\sari.exe run`.
-
-## Example
-
-The file `sari.toml` in this repo is:
-
-```toml
-[tasks]
-print = python -c "print(123)"
-```
-
-`.\sari.exe run` printed:
-
-```text
-$ print
-123
-
-task   exit  ms
-print     0  73
-```
-
-`73` is the millisecond count from that run. The next run will print a different number. The exit code was 0, and `.\sari.exe` itself exited 0.
-
-`.\sari.exe time -- python -c "print(123)"` printed:
-
-```text
-123
-exit 0
-duration 91ms
-```
-
-`sari time` started `python` directly. It did not pass the command through `cmd.exe`. The token after `--` is the program, and the rest are its arguments.
-
-## Flags and files
+## Usage
 
 ```text
 sari run [--keep-going] [-f sari.toml]
 sari time -- <command> [args...]
 ```
 
-`help`, `-h`, and `--help` print those two lines and exit 0.
+- `sari` with no arguments is the same as `sari run`.
+- `-f` or `--file` picks a different task file. The default is `sari.toml` in the current directory.
+- `help`, `-h` and `--help` print the usage and exit 0.
 
-- No arguments, or `run`, executes the task file from top to bottom. The default file is `sari.toml` in the current directory.
-- `-f` and `--file` select a different task file.
-- `--keep-going` keeps going after a task exits non-zero. Without it, sari stops at the first non-zero exit and still prints the table for the tasks it did run. sari's own exit code is that first non-zero code, or 0 when every task exits 0.
-- `time` requires a command. `sari time --` with nothing after it prints `sari: missing command` and exits 2.
+### Example
 
-An unknown command or an unknown flag prints the usage on standard error and exits 2.
+`sari.toml`:
 
-The task file is a single `[tasks]` list. Blank lines are ignored. A line whose first non-whitespace character is `#` is a comment. Every other line is `name = command`. The name is what the `$` line and the table show, unchanged. A name must be non-empty and must not contain `"`.
+```toml
+[tasks]
+# build steps
+hello = echo hello
+fail = sh -c "exit 3"
+after = echo done
+```
 
-If the command starts with `"`, it is a quoted string. The escapes are `\\`, `\"`, `\n`, and `\t`. Trailing text after the closing quote is an error, and an unclosed quote is an error. A command that does not start with `"` is taken as the rest of the line.
-
-A missing `[tasks]`, a second `[tasks]`, any other `[section]`, a line with no `=`, or an empty command makes sari print `sari: ...` on standard error and exit 2. The file may start with a UTF-8 BOM.
-
-From this directory, the tests are:
+`sari run` on Linux:
 
 ```text
-go test ./...
+$ hello
+hello
+$ fail
+
+task   exit  ms
+hello     0  1
+fail      3  1
 ```
+
+sari stopped after `fail` and exited 3. `after` did not run.
+
+`sari run --keep-going`:
+
+```text
+$ hello
+hello
+$ fail
+$ after
+done
+
+task   exit  ms
+hello     0  0
+fail      3  1
+after     0  1
+```
+
+All three tasks ran and sari still exited 3, the first non-zero code.
+
+`sari time -- echo hi`:
+
+```text
+hi
+exit 0
+duration 2ms
+```
+
+The millisecond values change from run to run.
+
+## Task file format
+
+The file holds one `[tasks]` section. Each line inside it is `name = command`.
+
+- Blank lines are ignored. A line whose first non-blank character is `#` is a comment.
+- The name is shown as written in the `$` line and in the table. It must be non-empty, valid UTF-8, and must not contain `"`.
+- If the command starts with `"`, it is a quoted string. Supported escapes are `\\`, `\"`, `\n` and `\t`. Text after the closing quote, or a missing closing quote, is an error.
+- Otherwise the command is the rest of the line, taken as is.
+- A UTF-8 BOM at the start of the file is allowed.
+
+These are errors: no `[tasks]` section, a second `[tasks]`, any other `[section]`, a line before `[tasks]`, a line without `=`, and an empty command. sari prints `sari: <reason>` (with the line number where there is one) on standard error and exits 2.
+
+## How commands are run
+
+- Tasks in `sari run` go through a shell: `sh -c "<command>"` on Linux and macOS. On Windows sari uses `%ComSpec%` (or `cmd.exe` if unset) with `/d /s /c` followed by the command string unchanged.
+- `sari time` does not use a shell. The first word after `--` is the program and the rest are its arguments.
+- Task output (stdout and stderr) goes straight to the terminal.
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Every task (or the timed command) exited 0 |
+| N | The first non-zero exit code from a task, or the timed command's exit code |
+| 1 | A command could not be started at all (for example `sari time` with a program that does not exist); sari prints `sari: <error>` |
+| 2 | Usage error, unknown command or flag, unreadable task file, invalid task file, or `sari time` with no command |
 
 ## Limits
 
-sari only reads a `[tasks]` list. It does not read other tables, and it does not schedule or watch the file.
+- One `[tasks]` list per file. No other tables, no dependencies between tasks, no parallel runs.
+- No scheduling. sari runs when you call it.
+- No file watching. It does not rerun when files change.
 
-On Windows, sari runs each task line through `cmd.exe`. It uses `ComSpec` when that variable is set, otherwise `cmd.exe`, and it builds the process command line as `/d /s /c` followed by the task string unchanged. sari does not split that string into arguments. `sari time` is separate: the program and arguments after `--` are started directly, with no shell.
+## Maintained by
+
+Maintained by Pro Gineous: https://progineous.com
+
+## License
+
+MIT, see [LICENSE](LICENSE).
